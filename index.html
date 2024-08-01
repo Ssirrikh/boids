@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset = utf-8>
+	<title>Boids Flocking</title>
+	<style>
+		* {
+			margin: 0px;
+			padding: 0px;
+			box-sizing: border-box;
+			font-family: 'Calibri';
+		}
+		body {
+			white-space: pre;
+			background-color: #111111;
+			overflow: hidden;
+            min-height: 100%;
+		}
+
+       #canvas-main {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .crosshair-v {
+            background-color: #ffffff;
+
+            display: inline-block;
+            position: absolute;
+            width: 1px;
+            height: 100%;
+            top: 0;
+            left: 50%;
+        }
+        .crosshair-h {
+            background-color: #ffffff;
+
+            display: inline-block;
+            position: absolute;
+            width: 100%;
+            height: 1px;
+            top: 50%;
+            left: 0;
+        }
+
+		.hidden {
+			visibility: hidden;
+		}
+	</style>
+</head>
+<body>
+
+
+<canvas id='canvas-main'></canvas>
+<div class='crosshair-v'></div>
+<div class='crosshair-h'></div>
+
+<script type="text/javascript">
+
+    const cv = document.getElementById('canvas-main');
+    cv.width = window.innerWidth;
+    cv.height = window.innerHeight;
+    const ctx = cv.getContext('2d');
+
+	let mouse = {
+        x : 0,
+        y : 0,
+        cartesianX : 0,
+        cartesianY : 0
+    };
+    window.addEventListener('mousemove', e => {
+        mouse.x = e.clientX;
+        mouse.y = e.clientY;
+        mouse.cartesianX = e.clientX - (window.innerWidth/2);
+        mouse.cartesianY = (window.innerHeight/2) - e.clientY;
+    });
+
+    const cx0 = Math.round(window.innerWidth / 2);
+    const cy0 = Math.round(window.innerHeight / 2);
+
+
+
+    //// GRAPHING ////
+
+    const DEFAULT_SIZE = 3;
+
+    function clampVector (v=[x,y], max) {
+        const len = Math.sqrt(x*x + y*y);
+        if (len < max) return v;
+        const fac = max / len;
+        return [x/fac, y/fac];
+    }
+
+    let boids = [];
+    class Boid {
+        constructor (pos = [Math.random()*cv.width,Math.random()*cv.height], MAX_VEL = 4, MAX_ACC = 1) {
+            this.pos = [...pos];
+            this.vel = [0,MAX_VEL];
+            this.acc = [0,0];
+            this.MAX_VEL = MAX_VEL;
+            this.MAX_ACC = MAX_ACC;
+        }
+        tick () {
+            this.vel = [this.vel[0]+this.acc[0], this.vel[1]+this.acc[1]];
+            this.vel = clampVector(this.vel,this.MAX_VEL);
+            this.pos = [this.pos[0]+this.vel[0], this.pos[1]+this.vel[1]];
+            this.acc = [0,0];
+        }
+        render () {
+            ctx.beginPath();
+            ctx.arc(...this.pos, DEFAULT_SIZE, 0,2*Math.PI);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(...this.pos);
+            ctx.lineTo(this.pos[0] + 2*DEFAULT_SIZE*this.vel[0], this.pos[1] + 2*DEFAULT_SIZE*this.vel[1]);
+            ctx.stroke();
+        }
+    }
+
+    function separate () {
+        for (let i = 0; i < boids.length; i++) {
+            for (let j = 0; j < boids.length; j++) {
+                if (i == j) continue;
+                //
+            }
+        }
+    }
+    function align () {
+        for (let i = 0; i < boids.length; i++) {
+            for (let j = 0; j < boids.length; j++) {
+                if (i == j) continue;
+                //
+            }
+        }
+    }
+    function cohese () {
+        for (let i = 0; i < boids.length; i++) {
+            for (let j = 0; j < boids.length; j++) {
+                if (i == j) continue;
+                //
+            }
+        }
+    }
+
+    function drawBoids (color = '#ff0000') {
+        ctx.fillStyle = color;
+        ctx.strokeStyle = color;
+        for (let boid of boids) {
+            boid.render();
+        }
+    }
+    
+
+	//// INIT ////
+
+    // populate
+    for (let i = 0; i < 100; i++) {
+        boids.push(new Boid());
+    }
+
+    // initial render
+    ctx.fillStyle = '#444444';
+    ctx.fillRect(0,0, cv.width,cv.height);
+    drawBoids();
+    
+
+
+	function animate () {
+
+		requestAnimationFrame(animate);
+        const t0_frame = performance.now();
+
+        // 
+
+	}
+	// animate();
+
+
+    //// UPDATE AND CONTROLS ////
+
+    // // display
+    // function onResize () {
+    //     cv.width = window.innerWidth;
+    //     cv.height = window.innerHeight;
+    //     cx0 = window.innerWidth / 2;
+    //     cy0 = window.innerHeight / 2;
+    // }
+    // window.addEventListener('resize', e => {
+    //     onResize();
+    // });
+    // onResize();
+
+    // // keybinds
+	// window.addEventListener('keydown', e => {
+	// 	// console.log(e.key);
+	// 	switch (e.key) {
+	// 	// camera controls
+	// 	case 'w': cameraMovement.up = true; break;
+    //     case 'a': cameraMovement.left = true; break;
+    //     case 's': cameraMovement.down = true; break;
+    //     case 'd': cameraMovement.right = true; break;
+    //     // cycle grid mode
+    //     case 'g':
+    //         gridMode++;
+    //         if (gridMode > GRID_MODE_NONE) gridMode = 0;
+    //         break;
+	// 	// fullscreen
+	// 	case 'f':
+    //         if (isFullscreen && document.fullscreenElement) {
+    //             document.exitFullscreen();
+    //             isFullscreen = false;
+    //         } else if (!isFullscreen && !document.fullscreenElement) {
+    //             document.documentElement.requestFullscreen();
+    //             isFullscreen = true;
+    //         }
+	// 		break;
+	// 	// debug log/controls
+	// 	case '`':
+    //         log.elem.style.visibility = (log.elem.style.visibility == 'hidden') ? 'visible' : 'hidden';
+	// 		break;
+    //     }
+	// });
+    // window.addEventListener('keyup', e => {
+	// 	console.log(e.key);
+	// 	switch (e.key) {
+	// 	// camera controls
+	// 	case 'w': cameraMovement.up = false; break;
+    //     case 'a': cameraMovement.left = false; break;
+    //     case 's': cameraMovement.down = false; break;
+    //     case 'd': cameraMovement.right = false; break;
+    //     }
+	// });
+
+
+
+</script>
+
+</body>
+</html>
