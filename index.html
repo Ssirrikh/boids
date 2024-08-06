@@ -2,7 +2,7 @@
 <html>
 <head>
 	<meta charset = utf-8>
-	<title>Boids Flocking</title>
+	<title>Parallax Demo</title>
 	<style>
 		* {
 			margin: 0px;
@@ -14,7 +14,6 @@
 			white-space: pre;
 			background-color: #111111;
 			overflow: hidden;
-            min-height: 100%;
 		}
 
        #canvas-main {
@@ -85,98 +84,227 @@
 
     //// GRAPHING ////
 
-    const DEFAULT_SIZE = 3;
+    const BOID_SIZE = 4;
+    const BOID_VISION = 200;
+    const BOID_WALL_AVERSION_DIST = 20;
 
-    function clampVector (v=[x,y], max) {
-        const len = Math.sqrt(x*x + y*y);
-        if (len < max) return v;
-        const fac = max / len;
-        return [x/fac, y/fac];
+    class Vec2 {
+        constructor (x,y) {
+            this.x = x;
+            this.y = y;
+        }
+
+        set (x,y) {
+            this.x = x ?? this.x ?? 0;
+            this.y = y ?? this.y ?? 0;
+            return this;
+        }
+        copy (v) {
+            this.x = v.x ?? this.x ?? 0;
+            this.y = v.y ?? this.y ?? 0;
+            return this;
+        }
+        clone () {
+            return new Vec2(this.x,this.y);
+        }
+
+        normalize () {
+            const len = Math.sqrt(this.x*this.x + this.y*this.y);
+            this.x /= len;
+            this.y /= len;
+            return this;
+        }
+        clamp (max) {
+            const len = Math.sqrt(this.x*this.x + this.y*this.y);
+            if (len > max) {
+                const fac = max / len;
+                this.x /= fac;
+                this.y /= fac;
+            }
+            return this;
+        }
+
+        add (v) {
+            this.x += v.x ?? 0;
+            this.y += v.y ?? 0;
+            return this;
+        }
+        sub (v) {
+            this.x -= v.x ?? 0;
+            this.y -= v.y ?? 0;
+            return this;
+        }
+        mul (v) {
+            this.x *= v.x ?? 1;
+            this.y *= v.y ?? 1;
+            return this;
+        }
+        div (v) {
+            this.x /= v.x ?? 1;
+            this.y /= v.y ?? 1;
+            return this;
+        }
+
+        scale (s) {
+            this.x *= s ?? 1;
+            this.y *= s ?? 1;
+            return this;
+        }
     }
 
+    function clamp (min,s,max) {
+        return Math.min(Math.max(min, s), max);
+    }
+    // function normalizeVector (v=[0,1]) {
+    //     const [x,y] = v;
+    //     const len = Math.sqrt(x*x + y*y);
+    //     return [x/len, y/len];
+    // }
+    // function clampVector (v=[0,1], max) {
+    //     const [x,y] = v;
+    //     const len = Math.sqrt(x*x + y*y);
+    //     if (len < max) return v;
+    //     const fac = max / len;
+    //     return [x/fac, y/fac];
+    // }
+
     let boids = [];
+    // class Boid {
+    //     constructor (MAX_VEL = 4, MAX_ACC = 1, pos = [Math.random()*cv.width,Math.random()*cv.height]) {
+    //         const velDir = 2*Math.PI * Math.random(); // in rad
+    //         this.pos = [...pos];
+    //         this.vel = [Math.cos(velDir),Math.sin(velDir)];
+    //         this.acc = [0,0];
+    //         this.MAX_VEL = MAX_VEL;
+    //         this.MAX_ACC = MAX_ACC;
+    //     }
+    //     tick () {
+    //         this.vel = [this.vel[0]+this.acc[0], this.vel[1]+this.acc[1]];
+    //         this.vel = clampVector(this.vel,this.MAX_VEL);
+    //         this.pos = [this.pos[0]+this.vel[0], this.pos[1]+this.vel[1]];
+    //         this.acc = [0,0]; // reset acc after tick so forces can be summed next tick
+    //     }
+    // }
     class Boid {
-        constructor (pos = [Math.random()*cv.width,Math.random()*cv.height], MAX_VEL = 4, MAX_ACC = 1) {
-            this.pos = [...pos];
-            this.vel = [0,MAX_VEL];
-            this.acc = [0,0];
+        constructor (MAX_VEL = 4, MAX_ACC = 1, pos = [Math.random()*cv.width,Math.random()*cv.height]) {
+            const velDir = 2*Math.PI * Math.random(); // in rad
+            this.pos = new Vec2(...pos);
+            this.vel = new Vec2(Math.cos(velDir),Math.sin(velDir));
+            this.acc = new Vec2(0,0);
             this.MAX_VEL = MAX_VEL;
             this.MAX_ACC = MAX_ACC;
         }
         tick () {
-            this.vel = [this.vel[0]+this.acc[0], this.vel[1]+this.acc[1]];
-            this.vel = clampVector(this.vel,this.MAX_VEL);
-            this.pos = [this.pos[0]+this.vel[0], this.pos[1]+this.vel[1]];
-            this.acc = [0,0];
-        }
-        render () {
-            ctx.beginPath();
-            ctx.arc(...this.pos, DEFAULT_SIZE, 0,2*Math.PI);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.moveTo(...this.pos);
-            ctx.lineTo(this.pos[0] + 2*DEFAULT_SIZE*this.vel[0], this.pos[1] + 2*DEFAULT_SIZE*this.vel[1]);
-            ctx.stroke();
+            this.vel.add(this.acc).clamp(this.MAX_VEL);
+            this.pos.add(this.vel);
+            this.acc.set(0,0); // reset acc after tick so forces can be summed next tick
         }
     }
 
-    function separate () {
-        for (let i = 0; i < boids.length; i++) {
-            for (let j = 0; j < boids.length; j++) {
-                if (i == j) continue;
-                //
-            }
-        }
+    function boidsInRange (i,j) {
+        const dx = boids[j].pos.x - boids[i].pos.x;
+        const dy = boids[j].pos.y - boids[i].pos.y;
+        return Math.sqrt(dx*dx + dy*dy) < BOID_VISION;
     }
-    function align () {
+    function applyForces () {
         for (let i = 0; i < boids.length; i++) {
+            // // random
+            // const newAcc = [boids[i].acc[0]+0.1*Math.random(),boids[i].acc[1]+0.1*Math.random()];
+            // boids[i].acc = clampVector(newAcc, boids[i].MAX_ACC);
+
+            // walls
+            const distLeft  = boids[i].pos.x;
+            const distRight = cv.width - boids[i].pos.x;
+            const distTop   = boids[i].pos.y;
+            const distBot   = cv.height - boids[i].pos.y;
+            const forceLeft  = boids[i].MAX_ACC * clamp(0, BOID_WALL_AVERSION_DIST-distLeft, BOID_WALL_AVERSION_DIST);
+            const forceRight = boids[i].MAX_ACC * clamp(0, BOID_WALL_AVERSION_DIST-distRight, BOID_WALL_AVERSION_DIST);
+            const forceTop   = boids[i].MAX_ACC * clamp(0, BOID_WALL_AVERSION_DIST-distTop, BOID_WALL_AVERSION_DIST);
+            const forceBot   = boids[i].MAX_ACC * clamp(0, BOID_WALL_AVERSION_DIST-distBot, BOID_WALL_AVERSION_DIST);
+            boids[i].acc.x += forceLeft - forceRight;
+            boids[i].acc.y += forceTop - forceBot;
+
+            // boids
             for (let j = 0; j < boids.length; j++) {
-                if (i == j) continue;
-                //
+                if (i == j) continue; // do not interact with self
+                if (!boidsInRange(i,j)) continue; // ignore boids we can't see
+                // separation
+                // alignment
+                // cohesion
             }
-        }
-    }
-    function cohese () {
-        for (let i = 0; i < boids.length; i++) {
-            for (let j = 0; j < boids.length; j++) {
-                if (i == j) continue;
-                //
-            }
+
         }
     }
 
-    function drawBoids (color = '#ff0000') {
+    function renderBoids (color = '#ff0000') {
         ctx.fillStyle = color;
-        ctx.strokeStyle = color;
-        for (let boid of boids) {
-            boid.render();
+        ctx.strokeStyle = '#ffffff';
+        for (let i = 0; i < boids.length; i++) {
+            const boid = boids[i];
+            // body
+            ctx.beginPath();
+            ctx.arc(boid.pos.x,boid.pos.y, BOID_SIZE, 0,2*Math.PI);
+            ctx.fill();
+            // velocity/facing
+            const normVel = boid.vel.clone().normalize().scale(2*BOID_SIZE).add(boid.pos);
+            ctx.beginPath();
+            ctx.moveTo(boid.pos.x,boid.pos.y);
+            ctx.lineTo(normVel.x,normVel.y);
+            ctx.stroke();
+            // coords
+            ctx.fillText(`(${Math.round(boid.pos.x)},${Math.round(boid.pos.y)})`, boid.pos.x+10, boid.pos.y-10);
+            // debug
+            if (i == 0) {
+                ctx.strokeStyle = '#ff00ff88';
+
+                // vision
+                ctx.beginPath();
+                ctx.arc(boid.pos.x,boid.pos.y, BOID_VISION, 0,2*Math.PI);
+                ctx.stroke();
+                // influences
+                for (let j = 0; j < boids.length; j++) {
+                    if (i==j) continue;
+                    ctx.beginPath();
+                    if (boidsInRange(i,j)) {
+                        ctx.moveTo(boids[i].pos.x,boids[i].pos.y);
+                        ctx.lineTo(boids[j].pos.x,boids[j].pos.y);
+                    }
+                    ctx.stroke();
+                }
+
+                ctx.strokeStyle = '#ffffff';
+            }
+            
         }
     }
-    
+
+
 
 	//// INIT ////
 
     // populate
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 30; i++) {
         boids.push(new Boid());
     }
 
-    // initial render
-    ctx.fillStyle = '#444444';
-    ctx.fillRect(0,0, cv.width,cv.height);
-    drawBoids();
-    
-
-
+    // update
 	function animate () {
 
 		requestAnimationFrame(animate);
         const t0_frame = performance.now();
 
-        // 
+        // tick
+        applyForces();
+        for (let boid of boids) {
+            boid.tick();
+        }
+        // draw
+        ctx.clearRect(0,0, cv.width,cv.height);
+        renderBoids();
 
 	}
-	// animate();
+    // renderBoids();
+	animate();
 
 
     //// UPDATE AND CONTROLS ////
