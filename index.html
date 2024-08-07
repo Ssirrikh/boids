@@ -2,7 +2,7 @@
 <html>
 <head>
 	<meta charset = utf-8>
-	<title>Parallax Demo</title>
+	<title>Boids - Flocking Sim</title>
 	<style>
 		* {
 			margin: 0px;
@@ -59,14 +59,19 @@
 
 <script type="text/javascript">
 
+    // canvas
     const cv = document.getElementById('canvas-main');
     cv.width = window.innerWidth;
     cv.height = window.innerHeight;
     const ctx = cv.getContext('2d');
+    // canvas helpers
+    let cx0 = Math.round(window.innerWidth / 2);
+    let cy0 = Math.round(window.innerHeight / 2);
 
+    // mouse updates
 	let mouse = {
-        x : 0,
-        y : 0,
+        x : cx0,
+        y : cy0,
         cartesianX : 0,
         cartesianY : 0
     };
@@ -76,23 +81,30 @@
         mouse.cartesianX = e.clientX - (window.innerWidth/2);
         mouse.cartesianY = (window.innerHeight/2) - e.clientY;
     });
+    // window updates
+    function onResize () {
+        cv.width = window.innerWidth;
+        cv.height = window.innerHeight;
+        cx0 = window.innerWidth / 2;
+        cy0 = window.innerHeight / 2;
+    }
+    window.addEventListener('resize', e => {
+        onResize();
+    });
 
-    const cx0 = Math.round(window.innerWidth / 2);
-    const cy0 = Math.round(window.innerHeight / 2);
+    // helper functions
+    function clamp (min,s,max) {
+        return Math.min(Math.max(min, s), max);
+    }
 
-
-
-    //// GRAPHING ////
-
-    const BOID_SIZE = 4;
-    const BOID_VISION = 200;
-    const BOID_WALL_AVERSION_DIST = 20;
-
+    // vector maths
     class Vec2 {
         constructor (x,y) {
-            this.x = x;
-            this.y = y;
+            this.x = x ?? 0;
+            this.y = y ?? 0;
         }
+
+        get length () { return Math.sqrt(this.x*this.x + this.y*this.y); }
 
         set (x,y) {
             this.x = x ?? this.x ?? 0;
@@ -110,17 +122,25 @@
 
         normalize () {
             const len = Math.sqrt(this.x*this.x + this.y*this.y);
-            this.x /= len;
-            this.y /= len;
+            const fac = 1 / len;
+            this.x *= fac;
+            this.y *= fac;
             return this;
         }
         clamp (max) {
             const len = Math.sqrt(this.x*this.x + this.y*this.y);
             if (len > max) {
                 const fac = max / len;
-                this.x /= fac;
-                this.y /= fac;
+                this.x *= fac;
+                this.y *= fac;
             }
+            return this;
+        }
+        setMag (mag) {
+            const len = Math.sqrt(this.x*this.x + this.y*this.y);
+            const fac = mag / len;
+            this.x *= fac;
+            this.y *= fac;
             return this;
         }
 
@@ -152,42 +172,20 @@
         }
     }
 
-    function clamp (min,s,max) {
-        return Math.min(Math.max(min, s), max);
-    }
-    // function normalizeVector (v=[0,1]) {
-    //     const [x,y] = v;
-    //     const len = Math.sqrt(x*x + y*y);
-    //     return [x/len, y/len];
-    // }
-    // function clampVector (v=[0,1], max) {
-    //     const [x,y] = v;
-    //     const len = Math.sqrt(x*x + y*y);
-    //     if (len < max) return v;
-    //     const fac = max / len;
-    //     return [x/fac, y/fac];
-    // }
+
+
+    //// BOIDS ////
+
+    const BOID_SIZE = 4;
+    const BOID_VISION = 100; // smaller vision results in multiple small flocks instead of several large ones; flocks larger than 4x this value tend to break apart; imagine a central boid with a neighbor on either side (---b---B---b---), anything further away no longer influenced by central boid
+    const BOID_WALL_AVERSION_DIST = 40; // dist at which boids start trying to avoid walls
+    const BOID_SEPARATION_STRENGTH = 1.20;
 
     let boids = [];
-    // class Boid {
-    //     constructor (MAX_VEL = 4, MAX_ACC = 1, pos = [Math.random()*cv.width,Math.random()*cv.height]) {
-    //         const velDir = 2*Math.PI * Math.random(); // in rad
-    //         this.pos = [...pos];
-    //         this.vel = [Math.cos(velDir),Math.sin(velDir)];
-    //         this.acc = [0,0];
-    //         this.MAX_VEL = MAX_VEL;
-    //         this.MAX_ACC = MAX_ACC;
-    //     }
-    //     tick () {
-    //         this.vel = [this.vel[0]+this.acc[0], this.vel[1]+this.acc[1]];
-    //         this.vel = clampVector(this.vel,this.MAX_VEL);
-    //         this.pos = [this.pos[0]+this.vel[0], this.pos[1]+this.vel[1]];
-    //         this.acc = [0,0]; // reset acc after tick so forces can be summed next tick
-    //     }
-    // }
+    
     class Boid {
-        constructor (MAX_VEL = 4, MAX_ACC = 1, pos = [Math.random()*cv.width,Math.random()*cv.height]) {
-            const velDir = 2*Math.PI * Math.random(); // in rad
+        constructor (MAX_VEL = 3, MAX_ACC = 0.1, pos = [Math.random()*cv.width,Math.random()*cv.height]) {
+            const velDir = 2*Math.PI * Math.random(); // random starting direction, in rad
             this.pos = new Vec2(...pos);
             this.vel = new Vec2(Math.cos(velDir),Math.sin(velDir));
             this.acc = new Vec2(0,0);
@@ -195,12 +193,18 @@
             this.MAX_ACC = MAX_ACC;
         }
         tick () {
+            this.acc.clamp(this.MAX_ACC);
             this.vel.add(this.acc).clamp(this.MAX_VEL);
             this.pos.add(this.vel);
             this.acc.set(0,0); // reset acc after tick so forces can be summed next tick
         }
     }
 
+    function boidsDist (i,j) {
+        const dx = boids[j].pos.x - boids[i].pos.x;
+        const dy = boids[j].pos.y - boids[i].pos.y;
+        return Math.sqrt(dx*dx + dy*dy);
+    }
     function boidsInRange (i,j) {
         const dx = boids[j].pos.x - boids[i].pos.x;
         const dy = boids[j].pos.y - boids[i].pos.y;
@@ -208,9 +212,8 @@
     }
     function applyForces () {
         for (let i = 0; i < boids.length; i++) {
-            // // random
-            // const newAcc = [boids[i].acc[0]+0.1*Math.random(),boids[i].acc[1]+0.1*Math.random()];
-            // boids[i].acc = clampVector(newAcc, boids[i].MAX_ACC);
+            // random
+            // boids[i].acc.add( new Vec2(2*Math.random()-1,2*Math.random()-1).clamp( boids[i].MAX_ACC) ); // too jittery
 
             // walls
             const distLeft  = boids[i].pos.x;
@@ -225,12 +228,35 @@
             boids[i].acc.y += forceTop - forceBot;
 
             // boids
+            let visibleBoids = 0; // net influence is avg of all visible boids' influences, so track total visible
+            let forceSeparate = new Vec2();
+            let forceAlign = new Vec2();
+            let forceCohese = new Vec2();
             for (let j = 0; j < boids.length; j++) {
                 if (i == j) continue; // do not interact with self
                 if (!boidsInRange(i,j)) continue; // ignore boids we can't see
+                visibleBoids++;
                 // separation
+                let delta = boids[i].pos.clone().sub( boids[j].pos ).scale( 1/boidsDist(i,j) );
+                forceSeparate.add( delta );
                 // alignment
+                forceAlign.add( boids[j].vel );
                 // cohesion
+                forceCohese.add( boids[j].pos );
+            }
+            if (visibleBoids > 0) {
+                // // simple forces (allow boids to deccelerate; they can start/stop, and w/o environmental stimuli they tend to simply orbit each other)
+                // forceSeparate.scale( 1/visibleBoids );
+                // forceAlign.scale( 1/visibleBoids );
+                // forceCohese.scale( 1/visibleBoids ).sub( boids[i].pos );
+                // soft forces (prevent boids from deccelerating to increase flow, and "lower reaction speed" by clamping to prevent sudden changes and sharp turns)
+                forceSeparate.scale( 1/visibleBoids ).setMag( boids[i].MAX_VEL ).sub( boids[i].vel ).clamp( boids[i].MAX_ACC );
+                forceAlign.scale( 1/visibleBoids ).setMag( boids[i].MAX_VEL ).sub( boids[i].vel ).clamp( boids[i].MAX_ACC );
+                forceCohese.scale( 1/visibleBoids ).sub( boids[i].pos ).setMag( boids[i].MAX_VEL ).sub( boids[i].vel ).clamp( boids[i].MAX_ACC );
+                // apply forces as allowed
+                boids[i].acc.add( forceSeparate.scale(BOID_SEPARATION_STRENGTH) );
+                boids[i].acc.add( forceAlign );
+                boids[i].acc.add( forceCohese );
             }
 
         }
@@ -251,12 +277,13 @@
             ctx.moveTo(boid.pos.x,boid.pos.y);
             ctx.lineTo(normVel.x,normVel.y);
             ctx.stroke();
-            // coords
-            ctx.fillText(`(${Math.round(boid.pos.x)},${Math.round(boid.pos.y)})`, boid.pos.x+10, boid.pos.y-10);
+            
             // debug
             if (i == 0) {
                 ctx.strokeStyle = '#ff00ff88';
 
+                // coords
+                ctx.fillText(`(${Math.round(boid.pos.x)},${Math.round(boid.pos.y)})`, boid.pos.x+10, boid.pos.y-10);
                 // vision
                 ctx.beginPath();
                 ctx.arc(boid.pos.x,boid.pos.y, BOID_VISION, 0,2*Math.PI);
@@ -305,62 +332,6 @@
 	}
     // renderBoids();
 	animate();
-
-
-    //// UPDATE AND CONTROLS ////
-
-    // // display
-    // function onResize () {
-    //     cv.width = window.innerWidth;
-    //     cv.height = window.innerHeight;
-    //     cx0 = window.innerWidth / 2;
-    //     cy0 = window.innerHeight / 2;
-    // }
-    // window.addEventListener('resize', e => {
-    //     onResize();
-    // });
-    // onResize();
-
-    // // keybinds
-	// window.addEventListener('keydown', e => {
-	// 	// console.log(e.key);
-	// 	switch (e.key) {
-	// 	// camera controls
-	// 	case 'w': cameraMovement.up = true; break;
-    //     case 'a': cameraMovement.left = true; break;
-    //     case 's': cameraMovement.down = true; break;
-    //     case 'd': cameraMovement.right = true; break;
-    //     // cycle grid mode
-    //     case 'g':
-    //         gridMode++;
-    //         if (gridMode > GRID_MODE_NONE) gridMode = 0;
-    //         break;
-	// 	// fullscreen
-	// 	case 'f':
-    //         if (isFullscreen && document.fullscreenElement) {
-    //             document.exitFullscreen();
-    //             isFullscreen = false;
-    //         } else if (!isFullscreen && !document.fullscreenElement) {
-    //             document.documentElement.requestFullscreen();
-    //             isFullscreen = true;
-    //         }
-	// 		break;
-	// 	// debug log/controls
-	// 	case '`':
-    //         log.elem.style.visibility = (log.elem.style.visibility == 'hidden') ? 'visible' : 'hidden';
-	// 		break;
-    //     }
-	// });
-    // window.addEventListener('keyup', e => {
-	// 	console.log(e.key);
-	// 	switch (e.key) {
-	// 	// camera controls
-	// 	case 'w': cameraMovement.up = false; break;
-    //     case 'a': cameraMovement.left = false; break;
-    //     case 's': cameraMovement.down = false; break;
-    //     case 'd': cameraMovement.right = false; break;
-    //     }
-	// });
 
 
 
