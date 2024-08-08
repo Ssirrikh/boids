@@ -31,7 +31,7 @@
             font-size: 12px;
         }
 
-        .crosshair-v {
+        #crosshair-v {
             background-color: #ffffff88;
 
             display: inline-block;
@@ -41,7 +41,7 @@
             top: 0;
             left: 50%;
         }
-        .crosshair-h {
+        #crosshair-h {
             background-color: #ffffff88;
 
             display: inline-block;
@@ -61,8 +61,8 @@
 
 
 <canvas id='canvas-main'></canvas>
-<div class='crosshair-v'></div>
-<div class='crosshair-h'></div>
+<div id='crosshair-v'></div>
+<div id='crosshair-h'></div>
 <div id='log'></div>
 
 <script type="text/javascript">
@@ -142,6 +142,10 @@
         }
     }
 
+    // DOM
+    const crosshairH = document.getElementById('crosshair-h');
+    const crosshairV = document.getElementById('crosshair-v');
+
     // log
     const log = document.getElementById('log');
     let logText = [];
@@ -194,8 +198,9 @@
     const BOID_VISION = 100; // smaller vision results in multiple small flocks instead of several large ones; flocks larger than 4x this value tend to break apart; imagine a central boid with a neighbor on either side (---b---B---b---), anything further away no longer influenced by central boid
     const BOID_CURSOR_VISION = 1.5 * BOID_VISION;
     const BOID_WALL_AVERSION_DIST = 40; // dist at which boids start trying to avoid walls
-    const BOID_OBSTACLE_AVERSION_DIST = 30;
-    const BOID_SEPARATION_STRENGTH = 1.20;
+    const BOID_OBSTACLE_AVERSION_DIST = 40; // dist at which boids start trying to avoid non-wall obstacles
+    const BOID_OBSTACLE_AVERSION_STRENGTH = 100;
+    const BOID_SEPARATION_STRENGTH = 1.10;
 
     const cursorAttractionStrength = 1.0;
     const cursorAversionStrength = 1.5;
@@ -204,6 +209,7 @@
     let applySeparation = true;
     let applyAlignment = true;
     let applyCohesion = true;
+    let applyObstacles = true;
 
     let boids = [];
     let obstacles = [];
@@ -226,7 +232,7 @@
     }
     class Obstacle {
         constructor (radius = 5, pos = [Math.random()*cv.width,Math.random()*cv.height]) {
-            this.radius = 5;
+            this.radius = radius;
             this.pos = new Vec2(...pos);
         }
         get aversionRadius () { return this.radius; }
@@ -235,6 +241,11 @@
     function boidsDist (i,j) {
         const dx = boids[j].pos.x - boids[i].pos.x;
         const dy = boids[j].pos.y - boids[i].pos.y;
+        return Math.sqrt(dx*dx + dy*dy);
+    }
+    function boidObstacleDist (i,j) {
+        const dx = obstacles[j].pos.x - boids[i].pos.x;
+        const dy = obstacles[j].pos.y - boids[i].pos.y;
         return Math.sqrt(dx*dx + dy*dy);
     }
     function boidsInRange (i,j) {
@@ -291,6 +302,33 @@
                 if (applyCohesion)   boids[i].acc.add( forceCohese );
             }
 
+            // // environment
+            // let visibleObstacles = 0; // net influence is avg of all visible obstacles, so track total
+            // let forceObstacles = new Vec2();
+            // for (let j = 0; j < obstacles.length; j++) {
+            //     const dist = boidObstacleDist(i,j)
+            //     if (dist < BOID_OBSTACLE_AVERSION_DIST) {
+            //         visibleObstacles++;
+            //         let separationDelta = obstacles[j].pos.clone().sub( boids[i].pos ); // .scale( -boids[i].MAX_ACC * 1/dist )
+            //         forceObstacles.add( separationDelta );
+            //     }
+            // }
+            // if (visibleObstacles > 0) {
+            //     // forceObstacles.scale( 1/visibleObstacles ).setMag( boids[i].MAX_VEL ).sub( boids[i].vel ).clamp( boids[i].MAX_ACC );
+            //     boids[i].acc.add( forceObstacles ).scale(BOID_OBSTACLE_AVERSION_STRENGTH);
+            // }
+
+            let forceObstacles = new Vec2();
+            for (let j = 0; j < obstacles.length; j++) {
+                if (boidObstacleDist(i,j) < 2*obstacles[j].radius) {
+                    // separation force pushing away from center of obstacle
+                    let obstacleDelta = boids[i].pos.clone().sub( obstacles[j].pos );
+                    forceObstacles.add( obstacleDelta );
+                    //// TODO: add flow force that aligns boids tangent to edge of obstacle
+                }
+            }
+            if (applyObstacles) boids[i].acc.add( forceObstacles ).scale( BOID_OBSTACLE_AVERSION_STRENGTH );
+
             // misc forces
             let cursorDelta = mouse.vec.clone().sub( boids[i].pos );
             if (cursorDelta.length < BOID_CURSOR_VISION) boids[i].acc.add( cursorDelta ).scale( cursorForceMagnitude ).clamp( boids[i].MAX_ACC );
@@ -340,6 +378,15 @@
             
         }
     }
+    function renderObstacles (color = '#777788') {
+        ctx.fillStyle = color;
+        for (let i = 0; i < obstacles.length; i++) {
+            const obstacle = obstacles[i];
+            ctx.beginPath();
+            ctx.arc(obstacle.pos.x,obstacle.pos.y, obstacle.radius, 0,2*Math.PI);
+            ctx.fill();
+        }
+    }
 
 
 
@@ -348,6 +395,9 @@
     // populate
     for (let i = 0; i < 30; i++) {
         boids.push(new Boid());
+    }
+    for (let i = 0; i < 10; i++) {
+        obstacles.push(new Obstacle(30*Math.random() + 10));
     }
 
     // update
@@ -363,6 +413,7 @@
         }
         // draw
         ctx.clearRect(0,0, cv.width,cv.height);
+        if (applyObstacles) renderObstacles();
         renderBoids();
 
         // log
@@ -378,6 +429,7 @@
             `[1] to toggle separation << ${applySeparation?'ON':'OFF'} >>`,
             `[2] to toggle alignment  << ${applyAlignment ?'ON':'OFF'} >>`,
             `[3] to toggle cohesion   << ${applyCohesion  ?'ON':'OFF'} >>`,
+            `[o] to toggle obstacles  << ${applyObstacles ?'ON':'OFF'} >>`,
             ``,
             `[d] to toggle debug info`
         ];
@@ -394,6 +446,7 @@
         case '1': applySeparation = !applySeparation; break;
         case '2': applyAlignment = !applyAlignment; break;
         case '3': applyCohesion = !applyCohesion; break;
+        case 'o': applyObstacles = !applyObstacles; break;
         // cursor influence (NONE -> ATTRACT -> REPEL)
         case 'c':
             if (cursorForceMagnitude == 0) cursorForceMagnitude = cursorAttractionStrength;
@@ -401,7 +454,13 @@
             else cursorForceMagnitude = 0;
             break;
         // debug
-        case 'd': log.style.visibility = (log.style.visibility=='hidden') ? 'visible' : 'hidden'; break;
+        case 'd':
+            if (log.style.visibility=='hidden') {
+                log.style.visibility = crosshairH.style.visibility = crosshairV.style.visibility = 'visible';
+            } else {
+                log.style.visibility = crosshairH.style.visibility = crosshairV.style.visibility = 'hidden';
+            }
+            break;
         case '`':
             console.log('DBG : debug key');
             break;
