@@ -377,7 +377,9 @@
             ``,
             `[1] to toggle separation << ${applySeparation?'ON':'OFF'} >>`,
             `[2] to toggle alignment  << ${applyAlignment ?'ON':'OFF'} >>`,
-            `[3] to toggle cohesion   << ${applyCohesion  ?'ON':'OFF'} >>`
+            `[3] to toggle cohesion   << ${applyCohesion  ?'ON':'OFF'} >>`,
+            ``,
+            `[d] to toggle debug info`
         ];
         log.innerHTML = logText.join('\n');
 
@@ -397,6 +399,12 @@
             if (cursorForceMagnitude == 0) cursorForceMagnitude = cursorAttractionStrength;
             else if (cursorForceMagnitude > 0) cursorForceMagnitude = -cursorAversionStrength;
             else cursorForceMagnitude = 0;
+            break;
+        // debug
+        case 'd': log.style.visibility = (log.style.visibility=='hidden') ? 'visible' : 'hidden'; break;
+        case '`':
+            console.log('DBG : debug key');
+            break;
         }
     });
 
