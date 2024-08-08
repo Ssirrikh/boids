@@ -8,24 +8,31 @@
 			margin: 0px;
 			padding: 0px;
 			box-sizing: border-box;
-			font-family: 'Calibri';
+			font-family: Consolas, 'Courier New', Courier, monospace;
 		}
 		body {
-			white-space: pre;
+            color: #22eeff;
 			background-color: #111111;
+			white-space: pre;
 			overflow: hidden;
 		}
 
-       #canvas-main {
+        #canvas-main {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
         }
+        #log {
+            position: absolute;
+            top: 1vmax;
+            left: 1vmax;
+            font-size: 12px;
+        }
 
         .crosshair-v {
-            background-color: #ffffff;
+            background-color: #ffffff88;
 
             display: inline-block;
             position: absolute;
@@ -35,7 +42,7 @@
             left: 50%;
         }
         .crosshair-h {
-            background-color: #ffffff;
+            background-color: #ffffff88;
 
             display: inline-block;
             position: absolute;
@@ -56,46 +63,9 @@
 <canvas id='canvas-main'></canvas>
 <div class='crosshair-v'></div>
 <div class='crosshair-h'></div>
+<div id='log'></div>
 
 <script type="text/javascript">
-
-    // canvas
-    const cv = document.getElementById('canvas-main');
-    cv.width = window.innerWidth;
-    cv.height = window.innerHeight;
-    const ctx = cv.getContext('2d');
-    // canvas helpers
-    let cx0 = Math.round(window.innerWidth / 2);
-    let cy0 = Math.round(window.innerHeight / 2);
-
-    // mouse updates
-	let mouse = {
-        x : cx0,
-        y : cy0,
-        cartesianX : 0,
-        cartesianY : 0
-    };
-    window.addEventListener('mousemove', e => {
-        mouse.x = e.clientX;
-        mouse.y = e.clientY;
-        mouse.cartesianX = e.clientX - (window.innerWidth/2);
-        mouse.cartesianY = (window.innerHeight/2) - e.clientY;
-    });
-    // window updates
-    function onResize () {
-        cv.width = window.innerWidth;
-        cv.height = window.innerHeight;
-        cx0 = window.innerWidth / 2;
-        cy0 = window.innerHeight / 2;
-    }
-    window.addEventListener('resize', e => {
-        onResize();
-    });
-
-    // helper functions
-    function clamp (min,s,max) {
-        return Math.min(Math.max(min, s), max);
-    }
 
     // vector maths
     class Vec2 {
@@ -172,16 +142,71 @@
         }
     }
 
+    // log
+    const log = document.getElementById('log');
+    let logText = [];
+
+    // canvas
+    const cv = document.getElementById('canvas-main');
+    cv.width = window.innerWidth;
+    cv.height = window.innerHeight;
+    const ctx = cv.getContext('2d');
+    // canvas helpers
+    let cx0 = Math.round(window.innerWidth / 2);
+    let cy0 = Math.round(window.innerHeight / 2);
+
+    // mouse updates
+	let mouse = {
+        x : cx0,
+        y : cy0,
+        cartesianX : 0,
+        cartesianY : 0,
+        vec : new Vec2(cx0,cy0)
+    };
+    window.addEventListener('mousemove', e => {
+        mouse.x = e.clientX;
+        mouse.y = e.clientY;
+        mouse.cartesianX = e.clientX - (window.innerWidth/2);
+        mouse.cartesianY = (window.innerHeight/2) - e.clientY;
+        mouse.vec.set(e.clientX,e.clientY);
+    });
+    // window updates
+    function onResize () {
+        cv.width = window.innerWidth;
+        cv.height = window.innerHeight;
+        cx0 = window.innerWidth / 2;
+        cy0 = window.innerHeight / 2;
+    }
+    window.addEventListener('resize', e => {
+        onResize();
+    });
+
+    // helper functions
+    function clamp (min,s,max) {
+        return Math.min(Math.max(min, s), max);
+    }
+
 
 
     //// BOIDS ////
 
     const BOID_SIZE = 4;
     const BOID_VISION = 100; // smaller vision results in multiple small flocks instead of several large ones; flocks larger than 4x this value tend to break apart; imagine a central boid with a neighbor on either side (---b---B---b---), anything further away no longer influenced by central boid
+    const BOID_CURSOR_VISION = 1.5 * BOID_VISION;
     const BOID_WALL_AVERSION_DIST = 40; // dist at which boids start trying to avoid walls
+    const BOID_OBSTACLE_AVERSION_DIST = 30;
     const BOID_SEPARATION_STRENGTH = 1.20;
 
+    const cursorAttractionStrength = 1.0;
+    const cursorAversionStrength = 1.5;
+    let cursorForceMagnitude = 0;
+
+    let applySeparation = true;
+    let applyAlignment = true;
+    let applyCohesion = true;
+
     let boids = [];
+    let obstacles = [];
     
     class Boid {
         constructor (MAX_VEL = 3, MAX_ACC = 0.1, pos = [Math.random()*cv.width,Math.random()*cv.height]) {
@@ -199,6 +224,13 @@
             this.acc.set(0,0); // reset acc after tick so forces can be summed next tick
         }
     }
+    class Obstacle {
+        constructor (radius = 5, pos = [Math.random()*cv.width,Math.random()*cv.height]) {
+            this.radius = 5;
+            this.pos = new Vec2(...pos);
+        }
+        get aversionRadius () { return this.radius; }
+    }
 
     function boidsDist (i,j) {
         const dx = boids[j].pos.x - boids[i].pos.x;
@@ -212,7 +244,7 @@
     }
     function applyForces () {
         for (let i = 0; i < boids.length; i++) {
-            // random
+            // random movement
             // boids[i].acc.add( new Vec2(2*Math.random()-1,2*Math.random()-1).clamp( boids[i].MAX_ACC) ); // too jittery
 
             // walls
@@ -237,8 +269,8 @@
                 if (!boidsInRange(i,j)) continue; // ignore boids we can't see
                 visibleBoids++;
                 // separation
-                let delta = boids[i].pos.clone().sub( boids[j].pos ).scale( 1/boidsDist(i,j) );
-                forceSeparate.add( delta );
+                let separationDelta = boids[i].pos.clone().sub( boids[j].pos ).scale( 1/boidsDist(i,j) );
+                forceSeparate.add( separationDelta );
                 // alignment
                 forceAlign.add( boids[j].vel );
                 // cohesion
@@ -254,10 +286,14 @@
                 forceAlign.scale( 1/visibleBoids ).setMag( boids[i].MAX_VEL ).sub( boids[i].vel ).clamp( boids[i].MAX_ACC );
                 forceCohese.scale( 1/visibleBoids ).sub( boids[i].pos ).setMag( boids[i].MAX_VEL ).sub( boids[i].vel ).clamp( boids[i].MAX_ACC );
                 // apply forces as allowed
-                boids[i].acc.add( forceSeparate.scale(BOID_SEPARATION_STRENGTH) );
-                boids[i].acc.add( forceAlign );
-                boids[i].acc.add( forceCohese );
+                if (applySeparation) boids[i].acc.add( forceSeparate.scale(BOID_SEPARATION_STRENGTH) );
+                if (applyAlignment)  boids[i].acc.add( forceAlign );
+                if (applyCohesion)   boids[i].acc.add( forceCohese );
             }
+
+            // misc forces
+            let cursorDelta = mouse.vec.clone().sub( boids[i].pos );
+            if (cursorDelta.length < BOID_CURSOR_VISION) boids[i].acc.add( cursorDelta ).scale( cursorForceMagnitude ).clamp( boids[i].MAX_ACC );
 
         }
     }
@@ -288,7 +324,7 @@
                 ctx.beginPath();
                 ctx.arc(boid.pos.x,boid.pos.y, BOID_VISION, 0,2*Math.PI);
                 ctx.stroke();
-                // influences
+                // influence tracers
                 for (let j = 0; j < boids.length; j++) {
                     if (i==j) continue;
                     ctx.beginPath();
@@ -329,9 +365,40 @@
         ctx.clearRect(0,0, cv.width,cv.height);
         renderBoids();
 
+        // log
+        const MSPT = performance.now() - t0_frame;
+        const MFPS = 1000 / MSPT;
+        logText = [
+            `MSPT : ${MSPT.toFixed()} ms`,
+            `MFPS : ${MFPS.toFixed()}`,
+            ``,
+            `CurPos : (${mouse.x},${mouse.y})`,
+            `[c] to toggle cursor interaction << ${(cursorForceMagnitude==0) ? 'NONE' : (cursorForceMagnitude>0) ? 'ATTRACT' : 'REPEL'} >>`,
+            ``,
+            `[1] to toggle separation << ${applySeparation?'ON':'OFF'} >>`,
+            `[2] to toggle alignment  << ${applyAlignment ?'ON':'OFF'} >>`,
+            `[3] to toggle cohesion   << ${applyCohesion  ?'ON':'OFF'} >>`
+        ];
+        log.innerHTML = logText.join('\n');
+
 	}
     // renderBoids();
 	animate();
+
+    // controls
+    window.addEventListener('keydown', e => {
+        switch (e.key) {
+        // influence force toggles
+        case '1': applySeparation = !applySeparation; break;
+        case '2': applyAlignment = !applyAlignment; break;
+        case '3': applyCohesion = !applyCohesion; break;
+        // cursor influence (NONE -> ATTRACT -> REPEL)
+        case 'c':
+            if (cursorForceMagnitude == 0) cursorForceMagnitude = cursorAttractionStrength;
+            else if (cursorForceMagnitude > 0) cursorForceMagnitude = -cursorAversionStrength;
+            else cursorForceMagnitude = 0;
+        }
+    });
 
 
 
