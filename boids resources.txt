@@ -1,0 +1,8 @@
+Evolution Aquerium (2d + racism + genetic alg)
+https://github.com/anuraghazra/EvolutionAquerium
+3D
+https://ercang.github.io/boids-js/
+2D w/ trails
+https://github.com/hughsk/boids
+explanation
+https://medium.com/@thiagowaib/building-a-flock-simulation-with-javascript-336cc2d415a7
